@@ -838,7 +838,7 @@ function renderSceneText(key) {
     </ul>
     ${
       key === "wire"
-        ? '<button id="toggleVoltageBtn" class="secondary-btn">Toggle potential difference</button>'
+        ? '<button id="toggleVoltageBtn" class="secondary-btn"><span class="icon">⚡</span><span>Toggle potential difference</span></button>'
         : ""
     }
   `;
@@ -848,7 +848,9 @@ function renderSceneText(key) {
     if (btn) {
       btn.addEventListener("click", () => {
         scenes.wire.toggleVoltage();
+        btn.classList.toggle("on", scenes.wire.voltageOn);
       });
+      btn.classList.toggle("on", scenes.wire.voltageOn);
     }
   }
 }
