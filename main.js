@@ -211,6 +211,7 @@ class HammerScene {
     this.phase = 0;
     this.phaseTime = 0;
     this.flattenAmount = 0;
+    this.compactionLevel = 0;
     this.ions = [];
     this.init();
   }
@@ -220,6 +221,7 @@ class HammerScene {
     this.phase = 0;
     this.phaseTime = 0;
     this.flattenAmount = 0;
+    this.compactionLevel = 0;
     this.ions = [];
 
     const cols = 10;
@@ -234,6 +236,7 @@ class HammerScene {
         const baseX = startX + i * gapX;
         const baseY = startY + j * gapY;
         this.ions.push({
+          row: j,
           baseX,
           baseY,
           x: baseX,
@@ -271,6 +274,10 @@ class HammerScene {
       const hitProgress = clamp(this.phaseTime / 1.0, 0, 1);
       const addedFlatten = 0.25 * easeOutBounce(hitProgress);
       this.flattenAmount = clamp(this.flattenAmount + addedFlatten * dt * 2, 0, 1.1);
+
+      // Gradually compact the number of effective layers: deeper hits -> fewer visible rows
+      const addedCompaction = 0.18 * easeOutCubic(hitProgress);
+      this.compactionLevel = clamp(this.compactionLevel + addedCompaction * dt * 1.6, 0, 1.0);
     }
 
     // Slowly relax the lattice a little between hits so the motion is readable
@@ -298,6 +305,17 @@ class HammerScene {
         const squash = (level - 0.5); // -0.5 bottom, +0.5 top
         offsetY += -32 * f * squash;
         offsetX += 30 * f * squash;
+      }
+
+      // Compaction effect: merge layers together visually by pulling neighbouring rows
+      if (this.compactionLevel > 0) {
+        const rowCenter = 2.5; // for 6 rows (0..5), centre ~2.5
+        const rowOffset = ion.row - rowCenter;
+        const pull = -rowOffset * 10 * this.compactionLevel;
+        offsetY += pull;
+
+        // Slight horizontal shuffle so rows appear to interlock rather than overlap perfectly
+        offsetX += (rowOffset * 4) * this.compactionLevel;
       }
 
       const jiggle = (Math.sin(this.time * 6 + ion.baseX) * 1.5) / 2;
@@ -390,15 +408,42 @@ class HammerScene {
   }
 
   drawMetal() {
+    // Base geometry for the metal sheet (starts shorter and narrower)
+    const canvasMidX = canvas.width / 2;
+    const baseTop = 150;
+    const baseBottom = 260;
+    const baseHalfWidth = (canvas.width - 380) / 2; // narrower than full anvil
+
+    // The visible anvil top is drawn at y ~340 (see drawAnvil translate + topGrad)
+    const targetGap = 12; // small visual gap between lattice and anvil
+    const anvilTopY = 340;
+
+    // Deformation from hammering: use both flattening and compaction
+    const deformation = clamp(this.flattenAmount * 0.9 + this.compactionLevel * 0.7, 0, 1.2);
+
+    // Height reduces with deformation
+    const heightShrink = 34 * deformation;
+    const height = (baseBottom - baseTop) - heightShrink;
+
+    // Keep the lattice bottom close to the anvil surface
+    const bottom = anvilTopY - targetGap;
+    const top = bottom - height;
+
+    // Width increases with deformation (metal spreads sideways)
+    const widthGrow = 42 * deformation;
+    const halfWidth = baseHalfWidth + widthGrow;
+    const left = canvasMidX - halfWidth;
+    const right = canvasMidX + halfWidth;
+
     ctx.save();
     ctx.beginPath();
-    ctx.moveTo(140, 150);
-    ctx.lineTo(canvas.width - 140, 150);
-    ctx.lineTo(canvas.width - 130, 260);
-    ctx.lineTo(130, 260);
+    ctx.moveTo(left, top);
+    ctx.lineTo(right, top);
+    ctx.lineTo(right + 10, bottom);
+    ctx.lineTo(left - 10, bottom);
     ctx.closePath();
 
-    const metalGrad = ctx.createLinearGradient(140, 150, canvas.width - 140, 260);
+    const metalGrad = ctx.createLinearGradient(left, top, right, bottom);
     metalGrad.addColorStop(0, "#1f2937");
     metalGrad.addColorStop(0.5, "#4b5563");
     metalGrad.addColorStop(1, "#111827");
@@ -442,7 +487,9 @@ class HammerScene {
 
     ctx.strokeStyle = "rgba(148, 163, 184, 0.9)";
     ctx.lineWidth = 3;
-    ctx.strokeRect(140, 150, canvas.width - 280, 110);
+    const outlineWidth = right - left;
+    const outlineHeight = bottom - top;
+    ctx.strokeRect(left, top, outlineWidth, outlineHeight);
   }
 
   drawOverlay() {
@@ -837,6 +884,100 @@ const sceneTextEl = document.getElementById("sceneText");
 const playPauseBtn = document.getElementById("playPauseBtn");
 const resetBtn = document.getElementById("resetBtn");
 const navButtons = document.querySelectorAll(".nav-button");
+const quizContainer = document.getElementById("quizContainer");
+const checkAnswersBtn = document.getElementById("checkAnswersBtn");
+const quizFeedback = document.getElementById("quizFeedback");
+
+const quizzes = {
+  sea: [
+    {
+      id: "sea-q1",
+      question: "What is meant by a 'sea of electrons' in a metal?",
+      options: [
+        "Electrons are fixed in place around each ion.",
+        "Electrons are delocalised and free to move between ions.",
+        "Electrons constantly move in and out of the metal.",
+      ],
+      correct: 1,
+    },
+    {
+      id: "sea-q2",
+      question: "Which particles form the lattice in a metal?",
+      options: [
+        "Neutral metal atoms.",
+        "Positive metal ions.",
+        "Negative metal ions.",
+      ],
+      correct: 1,
+    },
+    {
+      id: "sea-q3",
+      question: "Why do metals conduct electricity well?",
+      options: [
+        "Because ions can flow through the lattice.",
+        "Because delocalised electrons can move and carry charge.",
+        "Because the metal expands when heated.",
+      ],
+      correct: 1,
+    },
+  ],
+  hammer: [
+    {
+      id: "hammer-q1",
+      question: "Which word describes metals being hammered into shape?",
+      options: ["Brittle", "Malleable", "Volatile"],
+      correct: 1,
+    },
+    {
+      id: "hammer-q2",
+      question: "What happens to the ions when a metal is hammered?",
+      options: [
+        "They break away completely.",
+        "They slide over each other into new positions.",
+        "They stay rigid and cannot move at all.",
+      ],
+      correct: 1,
+    },
+    {
+      id: "hammer-q3",
+      question: "Why does the metal not shatter when layers slide?",
+      options: [
+        "Because like charges line up and repel.",
+        "Because metallic bonds break permanently.",
+        "Because delocalised electrons keep holding ions together.",
+      ],
+      correct: 2,
+    },
+  ],
+  wire: [
+    {
+      id: "wire-q1",
+      question: "In a metal wire, which particles move to make a current?",
+      options: ["Positive ions", "Delocalised electrons", "Protons"],
+      correct: 1,
+    },
+    {
+      id: "wire-q2",
+      question: "What provides the push that makes electrons drift?",
+      options: [
+        "The temperature of the room.",
+        "A potential difference (voltage) across the wire.",
+        "The mass of the metal ions.",
+      ],
+      correct: 1,
+    },
+    {
+      id: "wire-q3",
+      question: "What do the metal ions do when current flows?",
+      options: [
+        "They vibrate but stay in fixed positions.",
+        "They flow along the wire.",
+        "They change into neutral atoms.",
+      ],
+      correct: 0,
+    },
+  ],
+};
 
 function renderSceneText(key) {
   const info = sceneInfo[key];
@@ -866,6 +1007,75 @@ function renderSceneText(key) {
   }
 }
 
+function renderQuiz(key) {
+  const questions = quizzes[key] || [];
+  quizContainer.innerHTML = questions
+    .map((q, qi) => {
+      const optionsHtml = q.options
+        .map(
+          (opt, oi) => `
+        <li>
+          <label>
+            <input type="radio" name="${q.id}" value="${oi}" />
+            <span>${opt}</span>
+          </label>
+        </li>`
+        )
+        .join("");
+
+      return `
+      <article class="quiz-question">
+        <h3>Q${qi + 1}. ${q.question}</h3>
+        <ul class="quiz-options">
+          ${optionsHtml}
+        </ul>
+      </article>`;
+    })
+    .join("");
+
+  quizFeedback.textContent = "";
+  quizFeedback.classList.remove("good", "bad");
+}
+
+if (checkAnswersBtn) {
+  checkAnswersBtn.addEventListener("click", () => {
+    const questions = quizzes[currentScene] || [];
+    if (!questions.length) return;
+
+    let correctCount = 0;
+    let answeredCount = 0;
+
+    questions.forEach((q) => {
+      const selected = document.querySelector(
+        `input[name="${q.id}"]:checked`
+      );
+      if (selected) {
+        answeredCount += 1;
+        const value = parseInt(selected.value, 10);
+        if (value === q.correct) correctCount += 1;
+      }
+    });
+
+    if (answeredCount === 0) {
+      quizFeedback.textContent = "Choose at least one answer first.";
+      quizFeedback.classList.remove("good");
+      quizFeedback.classList.add("bad");
+      return;
+    }
+
+    const total = questions.length;
+    if (correctCount === total) {
+      quizFeedback.textContent = `Nice work – you got all ${total} correct!`;
+      quizFeedback.classList.remove("bad");
+      quizFeedback.classList.add("good");
+    } else {
+      quizFeedback.textContent = `You scored ${correctCount} out of ${total}. Check your answers and try again.`;
+      quizFeedback.classList.remove("good");
+      quizFeedback.classList.add("bad");
+    }
+  });
+}
+
 navButtons.forEach((btn) => {
   btn.addEventListener("click", () => {
     const sceneKey = btn.dataset.scene;
@@ -875,6 +1085,7 @@ navButtons.forEach((btn) => {
     btn.classList.add("active");
     scenes[sceneKey].reset();
     renderSceneText(sceneKey);
+    renderQuiz(sceneKey);
   });
 });
 
@@ -900,4 +1111,5 @@ function animate(timestamp) {
 }
 
 renderSceneText(currentScene);
+renderQuiz(currentScene);
 requestAnimationFrame(animate);
