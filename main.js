@@ -210,6 +210,7 @@ class HammerScene {
     this.time = 0;
     this.phase = 0;
     this.phaseTime = 0;
+    this.flattenAmount = 0;
     this.ions = [];
     this.init();
   }
@@ -218,6 +219,7 @@ class HammerScene {
     this.time = 0;
     this.phase = 0;
     this.phaseTime = 0;
+    this.flattenAmount = 0;
     this.ions = [];
 
     const cols = 10;
@@ -261,29 +263,41 @@ class HammerScene {
     } else if (this.phase === 3 && this.phaseTime > 1.2) {
       this.phase = 0;
       this.phaseTime = 0;
+      this.flattenAmount = 0;
+    }
+
+    // Build up a lasting flattening of the lattice each time the hammer hits
+    if (this.phase === 1) {
+      const hitProgress = clamp(this.phaseTime / 1.0, 0, 1);
+      const addedFlatten = 0.25 * easeOutBounce(hitProgress);
+      this.flattenAmount = clamp(this.flattenAmount + addedFlatten * dt * 2, 0, 1.1);
+    }
+
+    // Slowly relax the lattice a little between hits so the motion is readable
+    if (this.phase === 0 || this.phase === 3) {
+      this.flattenAmount = lerp(this.flattenAmount, 0.15, dt * 0.6);
     }
 
     for (const ion of this.ions) {
       let offsetX = 0;
       let offsetY = 0;
 
+      const level = (ion.baseY - 170) / 260;
+
+      // Instantaneous squash and sideways shove during the impact itself
       if (this.phase === 1) {
-        const impactStrength = Math.max(
-          0,
-          1 - Math.abs(ion.baseY - 200) / 100
-        );
-        offsetY = lerp(0, 14 * impactStrength, easeOutBounce(this.phaseTime));
-        offsetX = lerp(0, -8 * impactStrength, easeOutQuad(this.phaseTime));
-      } else if (this.phase === 2) {
-        const flatten = clamp(
-          (this.phaseTime - 0.2) / 1.5,
-          0,
-          1
-        );
-        const shear = clamp(this.phaseTime / 1.8, 0, 1);
-        const level = (ion.baseY - 170) / 260;
-        offsetY = -25 * flatten * (level - 0.5);
-        offsetX = 50 * shear * (level - 0.5);
+        const impactStrength = Math.max(0, 1 - Math.abs(ion.baseY - 200) / 110);
+        const local = easeOutBounce(clamp(this.phaseTime / 0.8, 0, 1));
+        offsetY += lerp(0, 10 * impactStrength, local);
+        offsetX += lerp(0, -6 * impactStrength, easeOutQuad(this.phaseTime));
+      }
+
+      // Persistent flattening: top layers move down, bottom layers move up
+      const f = this.flattenAmount;
+      if (f > 0) {
+        const squash = (level - 0.5); // -0.5 bottom, +0.5 top
+        offsetY += -32 * f * squash;
+        offsetX += 30 * f * squash;
       }
 
       const jiggle = (Math.sin(this.time * 6 + ion.baseX) * 1.5) / 2;
@@ -376,9 +390,6 @@ class HammerScene {
   }
 
   drawMetal() {
-    const padX = 60;
-    const padY = 30;
-
     ctx.save();
     ctx.beginPath();
     ctx.moveTo(140, 150);
