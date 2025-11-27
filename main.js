@@ -300,6 +300,7 @@ class AlloysScene {
       impactProgress: 0,
       impacting: false,
       effectiveShear: 0,
+      didShatter: false,
     };
     // layout settings: keep lattice in upper area and swords lower to avoid overlap
     this.cols = 10;
@@ -388,8 +389,8 @@ class AlloysScene {
         0.3,
         1.4
       );
-      // Create shatter fragments for the non-alloy sword (right side)
-      this.createFragments();
+      // Reset shatter flag; actual fragments spawn slightly later when blades collide
+      this.swords.didShatter = false;
     }
   }
 
@@ -415,6 +416,13 @@ class AlloysScene {
       }
     }
 
+    // Spawn fragments slightly after blades have crossed to make the collision feel realistic
+    const shatterAt = 0.65; // when to spawn shards (0..1)
+    if (this.swords.impactProgress >= shatterAt && !this.swords.didShatter) {
+      this.createFragments();
+      this.swords.didShatter = true;
+    }
+
     // Update fragments (shards) physics
     for (let i = this.fragments.length - 1; i >= 0; i--) {
       const f = this.fragments[i];
@@ -430,7 +438,7 @@ class AlloysScene {
   createFragments() {
     // Create small fragments at centre where swords meet
     const centerX = canvas.width / 2;
-    const centerY = this.swordY + 30; // spawn at handle-top pivot
+    const centerY = this.swordY + 60; // spawn at handle-top pivot
     const count = 16;
     for (let i = 0; i < count; i++) {
       const sx = centerX + (Math.random() - 0.5) * 40;
@@ -539,7 +547,10 @@ class AlloysScene {
     const centerX = canvas.width / 2;
     const centerY = this.swordY;
     const impact = this.swords.impactProgress;
-    const impactOffset = (this.swords.baseOffset || 40) + impact * 60;
+    // move swords closer as impact progresses: lerp from baseOffset -> finalOffset
+    const base = this.swords.baseOffset || 40;
+    const finalOffset = 8; // small separation when crossed
+    const impactOffset = lerp(base, finalOffset, impact);
 
     // Left sword: alloyed — colour varies with carbon content
     const tcol = clamp(this.carbonPercent / 2.0, 0, 1);
