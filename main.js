@@ -498,7 +498,13 @@ class AlloysScene {
       const rowFactor = 1 - (ion.row / Math.max(1, this.rows - 1)) * 0.45;
       let slideX = slideMax * slideProgress * rowFactor;
 
-      // if a carbon atom is nearby, it blocks sliding: compute nearest carbon distance
+      // apply a global reduction based on overall carbon content so increased carbon
+      // reduces sliding even if dopants are not immediately adjacent
+      const globalBlock = clamp(this.carbonPercent / 2.0, 0, 1);
+      // scale factor: at max carbon reduce sliding by ~45%
+      slideX *= (1 - 0.45 * globalBlock);
+
+      // if a carbon atom is nearby, it further blocks sliding: compute nearest carbon distance
       let minDist = Infinity;
       for (const c of this.carbonAtoms) {
         const ddx = baseCx - c.x;
@@ -507,9 +513,9 @@ class AlloysScene {
         if (d < minDist) minDist = d;
       }
       if (minDist < influenceRadius) {
-        // blocking strength scales with proximity and carbonPercent
-        const block = (1 - minDist / influenceRadius) * clamp(this.carbonPercent / 2.0, 0, 1);
-        slideX *= (1 - block);
+        // blocking strength scales with proximity and global carbon fraction
+        const localBlock = (1 - minDist / influenceRadius) * globalBlock;
+        slideX *= (1 - localBlock);
       }
 
       const cx = baseCx + dispX + slideX;
