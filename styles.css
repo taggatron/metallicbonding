@@ -229,6 +229,23 @@ body {
   color: var(--text-muted);
 }
 
+.scene-text button.inline-hot {
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: #f97316;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 0.16em;
+}
+
+.scene-text button.inline-hot:hover {
+  color: #fdba74;
+}
+
 .scene-text ul {
   margin: 0.35rem 0 0.15rem 1.1rem;
   padding: 0;

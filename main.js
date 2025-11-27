@@ -23,12 +23,16 @@ class SeaScene {
     this.ions = [];
     this.electrons = [];
     this.time = 0;
+    this.heatFront = 0;
+    this.heating = false;
     this.init();
   }
 
   init() {
     this.ions = [];
     this.electrons = [];
+    this.heatFront = 0;
+    this.heating = false;
     const cols = 9;
     const rows = 5;
     const startX = 110;
@@ -76,7 +80,23 @@ class SeaScene {
       h: canvas.height - 180,
     };
 
+    // Advance heat front if active (from left to right)
+    if (thermalActive) {
+      this.heating = true;
+      this.heatFront = Math.min(
+        area.x + area.w,
+        this.heatFront + dt * 220
+      );
+    } else if (this.heating) {
+      // Cool down slowly when toggled off
+      this.heatFront = Math.max(area.x, this.heatFront - dt * 180);
+      if (this.heatFront <= area.x + 2) {
+        this.heating = false;
+      }
+    }
+
     for (const e of this.electrons) {
+      const isHot = this.heating && e.x < this.heatFront;
       e.x += e.vx * dt;
       e.y += e.vy * dt;
 
@@ -87,13 +107,16 @@ class SeaScene {
         e.vy *= -1;
       }
 
-      if (Math.random() < 0.03) {
-        e.vx += (Math.random() - 0.5) * 25;
-        e.vy += (Math.random() - 0.5) * 25;
+      const baseJitter = isHot ? 0.08 : 0.03;
+      const kick = isHot ? 45 : 25;
+      if (Math.random() < baseJitter) {
+        e.vx += (Math.random() - 0.5) * kick;
+        e.vy += (Math.random() - 0.5) * kick;
       }
 
-      e.vx = clamp(e.vx, -60, 60);
-      e.vy = clamp(e.vy, -60, 60);
+      const maxSpeed = isHot ? 110 : 60;
+      e.vx = clamp(e.vx, -maxSpeed, maxSpeed);
+      e.vy = clamp(e.vy, -maxSpeed, maxSpeed);
     }
   }
 
@@ -115,41 +138,56 @@ class SeaScene {
       const rOuter = 16;
       const rInner = 10;
 
-      const glow = ctx.createRadialGradient(
-        ion.x,
-        ion.y,
-        2,
-        ion.x,
-        ion.y,
-        rOuter
-      );
-      glow.addColorStop(0, "rgba(248, 250, 252, 0.9)");
-      glow.addColorStop(1, "rgba(148, 163, 184, 0.05)");
+      const isHot = this.heating && ion.x < this.heatFront;
+
+      // Small vibration around the lattice point, larger when hot
+      const baseJiggle = 0.6;
+      const hotExtra = 2.0;
+      const amp = isHot ? baseJiggle + hotExtra : baseJiggle;
+      const t = this.time * (isHot ? 18 : 10) + ion.x * 0.03 + ion.y * 0.02;
+      const jx = Math.sin(t) * amp;
+      const jy = Math.cos(t * 1.1) * amp;
+      const cx = ion.x + jx;
+      const cy = ion.y + jy;
+
+      const glow = ctx.createRadialGradient(cx, cy, 2, cx, cy, rOuter);
+      if (isHot) {
+        glow.addColorStop(0, "rgba(253, 224, 171, 1)");
+        glow.addColorStop(1, "rgba(248, 113, 113, 0.08)");
+      } else {
+        glow.addColorStop(0, "rgba(248, 250, 252, 0.9)");
+        glow.addColorStop(1, "rgba(148, 163, 184, 0.05)");
+      }
 
       ctx.beginPath();
       ctx.fillStyle = glow;
-      ctx.arc(ion.x, ion.y, rOuter, 0, Math.PI * 2);
+      ctx.arc(cx, cy, rOuter, 0, Math.PI * 2);
       ctx.fill();
 
       const core = ctx.createLinearGradient(
-        ion.x - rInner,
-        ion.y - rInner,
-        ion.x + rInner,
-        ion.y + rInner
+        cx - rInner,
+        cy - rInner,
+        cx + rInner,
+        cy + rInner
       );
-      core.addColorStop(0, "#e5e7eb");
-      core.addColorStop(1, "#9ca3af");
+      if (isHot) {
+        core.addColorStop(0, "#fed7aa");
+        core.addColorStop(1, "#f97316");
+      } else {
+        core.addColorStop(0, "#e5e7eb");
+        core.addColorStop(1, "#9ca3af");
+      }
 
       ctx.beginPath();
       ctx.fillStyle = core;
-      ctx.arc(ion.x, ion.y, rInner, 0, Math.PI * 2);
+      ctx.arc(cx, cy, rInner, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.fillStyle = "#0f172a";
       ctx.font = "12px system-ui";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText("+", ion.x, ion.y + 1);
+      ctx.fillText("+", cx, cy + 1);
     }
   }
 
@@ -158,11 +196,18 @@ class SeaScene {
     ctx.globalCompositeOperation = "lighter";
     for (const e of this.electrons) {
       const r = 4;
+      const isHot = this.heating && e.x < this.heatFront;
 
       const glow = ctx.createRadialGradient(e.x, e.y, 0.5, e.x, e.y, r * 2.3);
-      glow.addColorStop(0, "rgba(56, 189, 248, 0.95)");
-      glow.addColorStop(0.6, "rgba(8, 47, 73, 0.5)");
-      glow.addColorStop(1, "rgba(8, 47, 73, 0)");
+      if (isHot) {
+        glow.addColorStop(0, "rgba(248, 250, 252, 1)");
+        glow.addColorStop(0.5, "rgba(251, 146, 60, 0.9)");
+        glow.addColorStop(1, "rgba(127, 29, 29, 0)");
+      } else {
+        glow.addColorStop(0, "rgba(56, 189, 248, 0.95)");
+        glow.addColorStop(0.6, "rgba(8, 47, 73, 0.5)");
+        glow.addColorStop(1, "rgba(8, 47, 73, 0)");
+      }
 
       ctx.beginPath();
       ctx.fillStyle = glow;
@@ -170,7 +215,7 @@ class SeaScene {
       ctx.fill();
 
       ctx.beginPath();
-      ctx.fillStyle = "#e0f2fe";
+      ctx.fillStyle = isHot ? "#fff7ed" : "#e0f2fe";
       ctx.arc(e.x, e.y, r, 0, Math.PI * 2);
       ctx.fill();
     }
@@ -188,12 +233,19 @@ class SeaScene {
     ctx.fillStyle = "#e5e7eb";
     ctx.font = "14px system-ui";
     ctx.textAlign = "left";
-    ctx.fillText("Delocalised electrons", 38, 45);
+    ctx.fillText("Delocalised electrons", 38, 40);
 
     ctx.fillStyle = "#9ca3af";
     ctx.font = "12px system-ui";
-    ctx.fillText("move freely through the giant", 38, 64);
-    ctx.fillText("lattice of positive metal ions.", 38, 80);
+    ctx.fillText("move freely through the giant", 38, 58);
+    ctx.fillText("lattice of positive metal ions.", 38, 72);
+
+    if (this.heating) {
+      ctx.fillStyle = "#fed7aa";
+      ctx.font = "11px system-ui";
+      ctx.fillText("Heating: faster electrons bump ions and", 38, 88);
+      ctx.fillText("transfer energy along the metal.", 38, 100);
+    }
   }
 
   draw() {
@@ -849,7 +901,7 @@ const sceneInfo = {
     bullets: [
       "Ions are fixed in position in the lattice.",
       "Electrons move randomly in all directions.",
-      "This explains high electrical and thermal conductivity.",
+      'This explains high electrical and <button type="button" id="thermalBtn" class="inline-hot">thermal</button> conductivity.',
     ],
   },
   hammer: {
@@ -881,6 +933,9 @@ const sceneInfo = {
 };
 
 const sceneTextEl = document.getElementById("sceneText");
+
+// Heat / thermal conduction state for scene 1
+let thermalActive = false;
 const playPauseBtn = document.getElementById("playPauseBtn");
 const resetBtn = document.getElementById("resetBtn");
 const navButtons = document.querySelectorAll(".nav-button");
@@ -994,6 +1049,15 @@ function renderSceneText(key) {
         : ""
     }
   `;
+
+  if (key === "sea") {
+    const thermalBtn = document.getElementById("thermalBtn");
+    if (thermalBtn) {
+      thermalBtn.addEventListener("click", () => {
+        thermalActive = !thermalActive;
+      });
+    }
+  }
 
   if (key === "wire") {
     const btn = document.getElementById("toggleVoltageBtn");
