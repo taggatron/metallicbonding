@@ -430,7 +430,7 @@ class AlloysScene {
   createFragments() {
     // Create small fragments at centre where swords meet
     const centerX = canvas.width / 2;
-    const centerY = this.swordY;
+    const centerY = this.swordY + 30; // spawn at handle-top pivot
     const count = 16;
     for (let i = 0; i < count; i++) {
       const sx = centerX + (Math.random() - 0.5) * 40;
@@ -539,24 +539,29 @@ class AlloysScene {
     const centerX = canvas.width / 2;
     const centerY = this.swordY;
     const impact = this.swords.impactProgress;
-    const impactOffset = impact * 60;
+    const impactOffset = (this.swords.baseOffset || 40) + impact * 60;
+
     // Left sword: alloyed — colour varies with carbon content
     const tcol = clamp(this.carbonPercent / 2.0, 0, 1);
-    // map from silver to warm brown as carbon increases
     const bladeCol = lerpColor('#e5e7eb', '#b45309', tcol);
 
+    // rotation from vertical (0) to crossed based on impact progress
+    // swapped directions: left rotates to +35deg (clockwise), right to -35deg (anticlockwise)
+    const leftRot = (lerp(0, 35, impact) * Math.PI) / 180;
+    const rightRot = (lerp(0, -35, impact) * Math.PI) / 180;
+
     ctx.save();
-    ctx.translate(centerX - impactOffset, centerY + 20);
-    ctx.rotate((-35 + impact * 20) * (Math.PI / 180));
+    // translate to the handle-top pivot (handle top is at local y = 10, previous translate used +20)
+    ctx.translate(centerX - impactOffset, centerY + 30);
+    ctx.rotate(leftRot);
     this.drawSwordShape(bladeCol, '#7c2d12', 1);
     ctx.restore();
 
     // Right sword: pure (non-alloy) — will shatter on impact
     ctx.save();
-    ctx.translate(centerX + impactOffset, centerY + 20);
-    ctx.rotate((35 - impact * 20) * (Math.PI / 180));
+    ctx.translate(centerX + impactOffset, centerY + 30);
+    ctx.rotate(rightRot);
     ctx.scale(-1, 1);
-    // reduce opacity if fragments exist to show it's broken
     const intactAlpha = this.fragments.length ? 0.25 : 1.0;
     this.drawSwordShape('#e5e7eb', '#7c2d12', intactAlpha);
     ctx.restore();
