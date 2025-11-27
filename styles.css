@@ -126,6 +126,42 @@ body {
   gap: 0.9rem;
 }
 
+.alloy-controls {
+  display: none;
+  padding: 0.5rem 0.6rem 0.6rem;
+  border-radius: 0.8rem;
+  background: radial-gradient(circle at top left, #020617, #020617 70%);
+  border: 1px solid rgba(148, 163, 184, 0.55);
+}
+
+.alloy-controls.visible {
+  display: block;
+}
+
+.alloy-controls h3 {
+  margin: 0 0 0.35rem;
+  font-size: 0.9rem;
+}
+
+.alloy-controls label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 0.25rem;
+}
+
+.alloy-controls input[type="range"] {
+  width: 100%;
+}
+
+.alloy-controls .value {
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  margin-left: 0.4rem;
+}
+
 .quiz {
   margin-top: 0.4rem;
   padding: 0.9rem 1.1rem 1.1rem;

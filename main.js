@@ -7,6 +7,7 @@ canvas.height = 520;
 let lastTime = 0;
 let running = true;
 let currentScene = "sea";
+let alloysScene = null;
 
 // Shared helpers
 function lerp(a, b, t) {
@@ -15,6 +16,34 @@ function lerp(a, b, t) {
 
 function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
+}
+
+// Color helpers: simple hex <-> rgb and lerp
+function hexToRgb(hex) {
+  const h = hex.replace('#','');
+  const bigint = parseInt(h, 16);
+  return [(bigint >> 16) & 255, (bigint >> 8) & 255, bigint & 255];
+}
+
+function rgbToHex(r,g,b) {
+  return '#'+((1<<24)+(r<<16)+(g<<8)+b).toString(16).slice(1);
+}
+
+function lerpColor(aHex, bHex, t) {
+  const a = hexToRgb(aHex);
+  const b = hexToRgb(bHex);
+  const r = Math.round(lerp(a[0], b[0], t));
+  const g = Math.round(lerp(a[1], b[1], t));
+  const bl = Math.round(lerp(a[2], b[2], t));
+  return rgbToHex(r,g,bl);
+}
+
+function easeOutQuad(t) {
+  return 1 - (1 - t) * (1 - t);
+}
+
+function easeOutCubic(t) {
+  return 1 - Math.pow(1 - t, 3);
 }
 
 // -------------------- Scene 1: Metallic bonding --------------------
@@ -252,6 +281,335 @@ class SeaScene {
     this.drawBackground();
     this.drawIons();
     this.drawElectrons();
+    this.drawOverlay();
+  }
+}
+
+// -------------------- Scene 4: Alloys & steel --------------------
+class AlloysScene {
+  constructor() {
+    this.time = 0;
+    this.carbonPercent = 0.2; // 0.2% typical mild steel
+    this.folds = 1;
+    this.lattice = [];
+    this.carbonAtoms = [];
+    this.fragments = []; // shards for non-alloy sword when it shatters
+    this.swords = {
+      angleLeft: -25,
+      angleRight: 25,
+      impactProgress: 0,
+      impacting: false,
+      effectiveShear: 0,
+    };
+    // layout settings: keep lattice in upper area and swords lower to avoid overlap
+    this.cols = 10;
+    this.rows = 4; // fewer rows so lattice fits in upper region
+    this.startX = 150;
+    this.startY = 80;
+    this.gapX = 55;
+    this.gapY = 45;
+    this.swordY = 360; // draw swords lower in the canvas
+    this.initLattice();
+    this.updateCarbonAtoms();
+  }
+
+  initLattice() {
+    this.lattice = [];
+    this.lattice = [];
+    for (let j = 0; j < this.rows; j++) {
+      for (let i = 0; i < this.cols; i++) {
+        this.lattice.push({
+          x: this.startX + i * this.gapX,
+          y: this.startY + j * this.gapY,
+          row: j,
+          col: i,
+        });
+      }
+    }
+  }
+
+  updateCarbonAtoms() {
+    this.carbonAtoms = [];
+    const interstitialSites = [];
+    // interstitial sites exist between 4 neighbouring ions: iterate rows-1 and cols-1
+    for (let j = 0; j < this.rows - 1; j++) {
+      for (let i = 0; i < this.cols - 1; i++) {
+        const baseIndex = j * this.cols + i;
+        const ionA = this.lattice[baseIndex];
+        const ionB = this.lattice[baseIndex + 1];
+        const ionC = this.lattice[baseIndex + this.cols];
+        const ionD = this.lattice[baseIndex + this.cols + 1];
+        if (!ionA || !ionB || !ionC || !ionD) continue;
+        interstitialSites.push({
+          x: (ionA.x + ionB.x + ionC.x + ionD.x) / 4,
+          y: (ionA.y + ionB.y + ionC.y + ionD.y) / 4,
+        });
+      }
+    }
+    const maxCarbonAtoms = Math.floor(
+      interstitialSites.length * clamp(this.carbonPercent / 2.0, 0, 1)
+    );
+    for (let k = 0; k < maxCarbonAtoms; k++) {
+      const site = interstitialSites[k];
+      this.carbonAtoms.push({
+        x: site.x,
+        y: site.y,
+      });
+    }
+  }
+
+  setCarbonPercent(p) {
+    this.carbonPercent = clamp(p, 0, 2.0);
+    this.updateCarbonAtoms();
+  }
+
+  setFolds(n) {
+    this.folds = clamp(n, 1, 12);
+  }
+
+  triggerImpact() {
+    if (!this.swords.impacting) {
+      this.swords.impacting = true;
+      this.swords.impactProgress = 0;
+      const baseShear = 0.4 + this.carbonPercent * 0.4;
+      const foldBoost = 1 + (this.folds - 1) * 0.04;
+      const disruption = this.carbonPercent; // more carbon -> more disruption
+      this.swords.effectiveShear = clamp(
+        baseShear * foldBoost * (1 - disruption * 0.15),
+        0.3,
+        1.4
+      );
+      // Create shatter fragments for the non-alloy sword (right side)
+      this.createFragments();
+    }
+  }
+
+  reset() {
+    this.time = 0;
+    this.swords.impacting = false;
+    this.swords.impactProgress = 0;
+    this.initLattice();
+    this.updateCarbonAtoms();
+  }
+
+  update(dt) {
+    this.time += dt;
+
+    if (this.swords.impacting) {
+      this.swords.impactProgress += dt * 1.8;
+      if (this.swords.impactProgress >= 1) {
+        this.swords.impactProgress = 1;
+        this.swords.impacting = false;
+        setTimeout(() => {
+          this.swords.impactProgress = 0;
+        }, 350);
+      }
+    }
+
+    // Update fragments (shards) physics
+    for (let i = this.fragments.length - 1; i >= 0; i--) {
+      const f = this.fragments[i];
+      f.vy += 280 * dt; // gravity
+      f.x += f.vx * dt;
+      f.y += f.vy * dt;
+      f.angle += f.av * dt;
+      f.life -= dt;
+      if (f.life <= 0) this.fragments.splice(i, 1);
+    }
+  }
+
+  createFragments() {
+    // Create small fragments at centre where swords meet
+    const centerX = canvas.width / 2;
+    const centerY = this.swordY;
+    const count = 16;
+    for (let i = 0; i < count; i++) {
+      const sx = centerX + (Math.random() - 0.5) * 40;
+      const sy = centerY + (Math.random() - 0.5) * 10;
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 80 + Math.random() * 180;
+      const vx = Math.cos(angle) * speed;
+      const vy = Math.sin(angle) * speed - 60;
+      const w = 6 + Math.random() * 18;
+      const h = 4 + Math.random() * 10;
+      this.fragments.push({ x: sx, y: sy, vx, vy, w, h, angle: Math.random()*360, av: (Math.random()-0.5)*360, life: 1.2 });
+    }
+  }
+
+  drawBackground() {
+    const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    grad.addColorStop(0, "#020617");
+    grad.addColorStop(1, "#020617");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // Draw a subtle separator between lattice (top) and swords (lower)
+    const latticeBottom = this.startY + (this.rows - 1) * this.gapY;
+    const sepY = latticeBottom + 20;
+    ctx.fillStyle = "rgba(15,23,42,0.9)";
+    ctx.fillRect(80, sepY, canvas.width - 160, 10);
+  }
+
+  drawLattice() {
+    for (const ion of this.lattice) {
+      const offset = Math.sin(this.time * 6 + ion.x * 0.03) * 1.2;
+      const cx = ion.x + offset * (this.carbonPercent + 0.2);
+      const cy = ion.y;
+      const r = 10;
+
+      const grad = ctx.createRadialGradient(cx, cy, 1, cx, cy, r + 4);
+      grad.addColorStop(0, "#e5e7eb");
+      grad.addColorStop(1, "rgba(148,163,184,0.15)");
+      ctx.beginPath();
+      ctx.fillStyle = grad;
+      ctx.arc(cx, cy, r + 2, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.fillStyle = "#cbd5f5";
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#020617";
+      ctx.font = "10px system-ui";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("Fe²⁺", cx, cy + 1);
+    }
+
+    for (const c of this.carbonAtoms) {
+      const jiggle = Math.sin(this.time * 9 + c.x * 0.04) * 1.4;
+      const cx = c.x + jiggle;
+      const cy = c.y;
+      const r = 6;
+      const grad = ctx.createRadialGradient(cx, cy, 0.5, cx, cy, r + 2);
+      grad.addColorStop(0, "#f97316");
+      grad.addColorStop(1, "rgba(248, 171, 77, 0.05)");
+      ctx.beginPath();
+      ctx.fillStyle = grad;
+      ctx.arc(cx, cy, r + 1.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.fillStyle = "#fed7aa";
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#172554";
+      ctx.font = "9px system-ui";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("C", cx, cy + 0.5);
+    }
+  }
+
+  drawSwords() {
+    const centerX = canvas.width / 2;
+    const centerY = this.swordY;
+    const impact = this.swords.impactProgress;
+    const impactOffset = impact * 60;
+    // Left sword: alloyed — colour varies with carbon content
+    const tcol = clamp(this.carbonPercent / 2.0, 0, 1);
+    // map from silver to warm brown as carbon increases
+    const bladeCol = lerpColor('#e5e7eb', '#b45309', tcol);
+
+    ctx.save();
+    ctx.translate(centerX - impactOffset, centerY + 20);
+    ctx.rotate((-35 + impact * 20) * (Math.PI / 180));
+    this.drawSwordShape(bladeCol, '#7c2d12', 1);
+    ctx.restore();
+
+    // Right sword: pure (non-alloy) — will shatter on impact
+    ctx.save();
+    ctx.translate(centerX + impactOffset, centerY + 20);
+    ctx.rotate((35 - impact * 20) * (Math.PI / 180));
+    ctx.scale(-1, 1);
+    // reduce opacity if fragments exist to show it's broken
+    const intactAlpha = this.fragments.length ? 0.25 : 1.0;
+    this.drawSwordShape('#e5e7eb', '#7c2d12', intactAlpha);
+    ctx.restore();
+
+    // Draw fragments (shards) from non-alloy sword
+    if (this.fragments.length) {
+      for (const f of this.fragments) {
+        ctx.save();
+        ctx.translate(f.x, f.y);
+        ctx.rotate((f.angle * Math.PI) / 180);
+        ctx.globalAlpha = Math.max(0, f.life / 1.2);
+        ctx.fillStyle = '#d1d5db';
+        ctx.fillRect(-f.w/2, -f.h/2, f.w, f.h);
+        ctx.restore();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    const shear = this.swords.effectiveShear || 0.5;
+    const barWidth = 120;
+    const barHeight = 8;
+    const x = centerX - barWidth / 2;
+    const y = 300;
+    ctx.fillStyle = "rgba(15,23,42,0.9)";
+    ctx.fillRect(x - 2, y - 2, barWidth + 4, barHeight + 4);
+    const grad = ctx.createLinearGradient(x, y, x + barWidth, y);
+    grad.addColorStop(0, "#fecaca");
+    grad.addColorStop(clamp(shear / 1.4, 0, 1), "#f97316");
+    grad.addColorStop(1, "#4ade80");
+    ctx.fillStyle = grad;
+    ctx.fillRect(x, y, barWidth * clamp(shear / 1.4, 0.1, 1), barHeight);
+
+    ctx.fillStyle = "#e5e7eb";
+    ctx.font = "11px system-ui";
+    ctx.textAlign = "center";
+    ctx.fillText("Shear strength", centerX, y - 6);
+  }
+
+  drawSwordShape(bladeColor = '#e5e7eb', handleColor = '#9a3412', alpha = 1) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.beginPath();
+    ctx.moveTo(-10, 10);
+    ctx.lineTo(10, 10);
+    ctx.lineTo(14, -80);
+    ctx.lineTo(0, -120);
+    ctx.lineTo(-14, -80);
+    ctx.closePath();
+    const mid = lerpColor(bladeColor, '#ffffff', 0.35);
+    const bladeGrad = ctx.createLinearGradient(-20, -120, 20, 10);
+    bladeGrad.addColorStop(0, bladeColor);
+    bladeGrad.addColorStop(0.45, mid);
+    bladeGrad.addColorStop(1, '#f9fafb');
+    ctx.fillStyle = bladeGrad;
+    ctx.fill();
+
+    ctx.fillStyle = handleColor;
+    ctx.fillRect(-18, 10, 36, 6);
+    ctx.fillStyle = '#7c2d12';
+    ctx.fillRect(-4, 16, 8, 20);
+    ctx.restore();
+  }
+
+  drawOverlay() {
+    ctx.fillStyle = "rgba(15,23,42,0.9)";
+    ctx.fillRect(canvas.width - 280, 22, 250, 90);
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.8)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(canvas.width - 280, 22, 250, 90);
+
+    ctx.fillStyle = "#e5e7eb";
+    ctx.font = "14px system-ui";
+    ctx.textAlign = "left";
+    ctx.fillText("Alloy: iron + carbon", canvas.width - 266, 40);
+    ctx.fillStyle = "#9ca3af";
+    ctx.font = "12px system-ui";
+    ctx.fillText("Carbon atoms fit into gaps in", canvas.width - 266, 58);
+    ctx.fillText("the Fe²⁺ lattice and distort it.", canvas.width - 266, 72);
+    ctx.fillText("This resists layers sliding → higher", canvas.width - 266, 88);
+    ctx.fillText("shear strength but less malleable.", canvas.width - 266, 102);
+  }
+
+  draw() {
+    this.drawBackground();
+    this.drawLattice();
+    this.drawSwords();
     this.drawOverlay();
   }
 }
@@ -571,17 +929,6 @@ class HammerScene {
   }
 }
 
-// Easing functions used in hammer animation
-function easeOutQuad(t) {
-  t = clamp(t, 0, 1);
-  return 1 - (1 - t) * (1 - t);
-}
-
-function easeOutCubic(t) {
-  t = clamp(t, 0, 1);
-  return 1 - Math.pow(1 - t, 3);
-}
-
 function easeOutBounce(t) {
   t = clamp(t, 0, 1);
   const n1 = 7.5625;
@@ -888,6 +1235,7 @@ const scenes = {
   sea: new SeaScene(),
   hammer: new HammerScene(),
   wire: new WireScene(),
+  alloys: null,
 };
 
 const sceneInfo = {
@@ -930,6 +1278,19 @@ const sceneInfo = {
       "Ions stay fixed in position and do not flow.",
     ],
   },
+  alloys: {
+    title: "Alloys: carbon in an iron lattice",
+    body: [
+      "Pure iron has layers of Fe²⁺ ions in a regular giant metallic lattice.",
+      "Adding small amounts of carbon forms steel – an alloy.",
+      "Carbon atoms sit between the iron ions and distort the lattice.",
+    ],
+    bullets: [
+      "More carbon → harder and stronger steel but less malleable.",
+      "Carbon atoms make it harder for layers to slide.",
+      "Folding and working the metal can spread impurities and toughen it.",
+    ],
+  },
 };
 
 const sceneTextEl = document.getElementById("sceneText");
@@ -942,6 +1303,58 @@ const navButtons = document.querySelectorAll(".nav-button");
 const quizContainer = document.getElementById("quizContainer");
 const checkAnswersBtn = document.getElementById("checkAnswersBtn");
 const quizFeedback = document.getElementById("quizFeedback");
+const alloyControlsEl = document.getElementById("alloyControls");
+
+function renderAlloyControls() {
+  if (!alloyControlsEl) return;
+  alloyControlsEl.innerHTML = `
+    <h3>Steel composition</h3>
+    <label>
+      Carbon content
+      <span class="value" id="carbonValue">0.2% C</span>
+    </label>
+    <input type="range" id="carbonSlider" min="0" max="2" step="0.1" value="0.2" />
+    <label>
+      Folds / working
+      <span class="value" id="foldsValue">1× folded</span>
+    </label>
+    <input type="range" id="foldsSlider" min="1" max="12" step="1" value="1" />
+  `;
+
+  const carbonSlider = document.getElementById("carbonSlider");
+  const foldsSlider = document.getElementById("foldsSlider");
+  const carbonValue = document.getElementById("carbonValue");
+  const foldsValue = document.getElementById("foldsValue");
+
+  const updateCarbonLabel = (val) => {
+    carbonValue.textContent = `${parseFloat(val).toFixed(1)}% C`;
+  };
+
+  const updateFoldsLabel = (val) => {
+    const n = parseInt(val, 10) || 1;
+    foldsValue.textContent = `${n}× folded`;
+  };
+
+  if (carbonSlider) {
+    updateCarbonLabel(carbonSlider.value);
+    carbonSlider.addEventListener("input", () => {
+      updateCarbonLabel(carbonSlider.value);
+      if (scenes.alloys) {
+        scenes.alloys.setCarbonPercent(parseFloat(carbonSlider.value));
+      }
+    });
+  }
+
+  if (foldsSlider) {
+    updateFoldsLabel(foldsSlider.value);
+    foldsSlider.addEventListener("input", () => {
+      updateFoldsLabel(foldsSlider.value);
+      if (scenes.alloys) {
+        scenes.alloys.setFolds(parseInt(foldsSlider.value, 10));
+      }
+    });
+  }
+}
 
 const quizzes = {
   sea: [
@@ -1032,6 +1445,28 @@ const quizzes = {
       correct: 0,
     },
   ],
+  alloys: [
+    {
+      id: "alloys-q1",
+      question: "What does carbon do in steel?",
+      options: [
+        "It replaces iron ions in the lattice.",
+        "It sits between iron ions and distorts the lattice.",
+        "It removes the sea of electrons.",
+      ],
+      correct: 1,
+    },
+    {
+      id: "alloys-q2",
+      question: "Why is high-carbon steel harder but less malleable?",
+      options: [
+        "Layers of ions slide past each other more easily.",
+        "There are fewer electrons to carry charge.",
+        "Carbon atoms block the movement of the layers.",
+      ],
+      correct: 2,
+    },
+  ],
 };
 
 function renderSceneText(key) {
@@ -1046,6 +1481,11 @@ function renderSceneText(key) {
     ${
       key === "wire"
         ? '<button id="toggleVoltageBtn" class="secondary-btn"><span class="icon">⚡</span><span>Toggle potential difference</span></button>'
+        : ""
+    }
+    ${
+      key === "alloys"
+        ? '<button id="impactBtn" class="secondary-btn"><span class="icon">⚔️</span><span>Test shear strength</span></button>'
         : ""
     }
   `;
@@ -1067,6 +1507,15 @@ function renderSceneText(key) {
         btn.classList.toggle("on", scenes.wire.voltageOn);
       });
       btn.classList.toggle("on", scenes.wire.voltageOn);
+    }
+  }
+
+  if (key === "alloys") {
+    const btn = document.getElementById("impactBtn");
+    if (btn && scenes.alloys) {
+      btn.addEventListener("click", () => {
+        scenes.alloys.triggerImpact();
+      });
     }
   }
 }
@@ -1143,13 +1592,25 @@ if (checkAnswersBtn) {
 navButtons.forEach((btn) => {
   btn.addEventListener("click", () => {
     const sceneKey = btn.dataset.scene;
-    if (!sceneKey || !scenes[sceneKey]) return;
+    if (!sceneKey) return;
+    if (sceneKey === "alloys" && !scenes.alloys) {
+      scenes.alloys = new AlloysScene();
+    }
+    if (!scenes[sceneKey]) return;
     currentScene = sceneKey;
     navButtons.forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
     scenes[sceneKey].reset();
     renderSceneText(sceneKey);
     renderQuiz(sceneKey);
+
+    if (alloyControlsEl) {
+      if (sceneKey === "alloys") {
+        alloyControlsEl.classList.add("visible");
+      } else {
+        alloyControlsEl.classList.remove("visible");
+      }
+    }
   });
 });
 
@@ -1176,4 +1637,5 @@ function animate(timestamp) {
 
 renderSceneText(currentScene);
 renderQuiz(currentScene);
+renderAlloyControls();
 requestAnimationFrame(animate);
