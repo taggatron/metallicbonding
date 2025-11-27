@@ -490,7 +490,29 @@ class AlloysScene {
         }
       }
 
-      const cx = baseCx + dispX;
+      // sliding animation: when testing shear, layers try to slide right
+      const impactProg = clamp(this.swords.impactProgress || 0, 0, 1);
+      const slideProgress = easeOutCubic(impactProg);
+      const slideMax = 22; // maximum slide in pixels
+      // rows nearer the middle slide a bit more; adjust by row index
+      const rowFactor = 1 - (ion.row / Math.max(1, this.rows - 1)) * 0.45;
+      let slideX = slideMax * slideProgress * rowFactor;
+
+      // if a carbon atom is nearby, it blocks sliding: compute nearest carbon distance
+      let minDist = Infinity;
+      for (const c of this.carbonAtoms) {
+        const ddx = baseCx - c.x;
+        const ddy = baseCy - c.y;
+        const d = Math.hypot(ddx, ddy);
+        if (d < minDist) minDist = d;
+      }
+      if (minDist < influenceRadius) {
+        // blocking strength scales with proximity and carbonPercent
+        const block = (1 - minDist / influenceRadius) * clamp(this.carbonPercent / 2.0, 0, 1);
+        slideX *= (1 - block);
+      }
+
+      const cx = baseCx + dispX + slideX;
       const cy = baseCy + dispY;
       const r = 10;
 
