@@ -349,12 +349,21 @@ class AlloysScene {
     const maxCarbonAtoms = Math.floor(
       interstitialSites.length * clamp(this.carbonPercent / 2.0, 0, 1)
     );
-    for (let k = 0; k < maxCarbonAtoms; k++) {
-      const site = interstitialSites[k];
-      this.carbonAtoms.push({
-        x: site.x,
-        y: site.y,
-      });
+
+    // Randomly choose interstitial sites to place carbon atoms using Fisher-Yates shuffle
+    if (interstitialSites.length > 0 && maxCarbonAtoms > 0) {
+      for (let i = interstitialSites.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const tmp = interstitialSites[i];
+        interstitialSites[i] = interstitialSites[j];
+        interstitialSites[j] = tmp;
+      }
+
+      const pick = Math.min(maxCarbonAtoms, interstitialSites.length);
+      for (let k = 0; k < pick; k++) {
+        const site = interstitialSites[k];
+        this.carbonAtoms.push({ x: site.x, y: site.y });
+      }
     }
   }
 
@@ -452,8 +461,29 @@ class AlloysScene {
   drawLattice() {
     for (const ion of this.lattice) {
       const offset = Math.sin(this.time * 6 + ion.x * 0.03) * 1.2;
-      const cx = ion.x + offset * (this.carbonPercent + 0.2);
-      const cy = ion.y;
+      // base position with small thermal jiggle
+      const baseCx = ion.x + offset * (this.carbonPercent + 0.2);
+      const baseCy = ion.y;
+
+      // displacement from nearby carbon dopants to show lattice distortion
+      let dispX = 0;
+      let dispY = 0;
+      const influenceRadius = 48; // px
+      for (const c of this.carbonAtoms) {
+        const dx = baseCx - c.x;
+        const dy = baseCy - c.y;
+        const dist = Math.hypot(dx, dy) + 0.0001;
+        if (dist < influenceRadius) {
+          // stronger carbon % -> stronger local distortion
+          const influence = Math.pow(1 - dist / influenceRadius, 1.6) * (0.6 + this.carbonPercent * 0.9);
+          // push ions slightly away from the carbon atom (creates local buckling)
+          dispX += (dx / dist) * influence * 10;
+          dispY += (dy / dist) * influence * 6;
+        }
+      }
+
+      const cx = baseCx + dispX;
+      const cy = baseCy + dispY;
       const r = 10;
 
       const grad = ctx.createRadialGradient(cx, cy, 1, cx, cy, r + 4);
@@ -480,22 +510,25 @@ class AlloysScene {
       const jiggle = Math.sin(this.time * 9 + c.x * 0.04) * 1.4;
       const cx = c.x + jiggle;
       const cy = c.y;
-      const r = 6;
-      const grad = ctx.createRadialGradient(cx, cy, 0.5, cx, cy, r + 2);
-      grad.addColorStop(0, "#f97316");
-      grad.addColorStop(1, "rgba(248, 171, 77, 0.05)");
+      // larger carbon markers to emphasise interstitial dopants
+      const r = 8 + Math.round(this.carbonPercent * 1.8);
+      const glowSize = r + 3;
+      const grad = ctx.createRadialGradient(cx, cy, 0.5, cx, cy, glowSize * 1.2);
+      grad.addColorStop(0, "#ffb347");
+      grad.addColorStop(0.4, "#f97316");
+      grad.addColorStop(1, "rgba(248, 171, 77, 0.06)");
       ctx.beginPath();
       ctx.fillStyle = grad;
-      ctx.arc(cx, cy, r + 1.5, 0, Math.PI * 2);
+      ctx.arc(cx, cy, glowSize, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.beginPath();
-      ctx.fillStyle = "#fed7aa";
+      ctx.fillStyle = "#fdba74";
       ctx.arc(cx, cy, r, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.fillStyle = "#172554";
-      ctx.font = "9px system-ui";
+      ctx.font = "10px system-ui";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText("C", cx, cy + 0.5);
