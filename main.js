@@ -597,8 +597,8 @@ class AlloysScene {
     // Position the shear bar to the left of the left sword to avoid overlap
     const leftSwordX = centerX - impactOffset;
     const margin = 12;
-    let x = Math.max(20, Math.round(leftSwordX - margin - barWidth));
-    const y = Math.round(centerY - 60);
+    let x = Math.max(20, Math.round(leftSwordX - margin - barWidth - 20));
+    const y = Math.round(centerY - 30);
 
     ctx.fillStyle = "rgba(15,23,42,0.9)";
     ctx.fillRect(x - 2, y - 2, barWidth + 4, barHeight + 4);
