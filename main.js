@@ -594,8 +594,12 @@ class AlloysScene {
     const shear = this.swords.effectiveShear || 0.5;
     const barWidth = 120;
     const barHeight = 8;
-    const x = centerX - barWidth / 2;
-    const y = 300;
+    // Position the shear bar to the left of the left sword to avoid overlap
+    const leftSwordX = centerX - impactOffset;
+    const margin = 12;
+    let x = Math.max(20, Math.round(leftSwordX - margin - barWidth));
+    const y = Math.round(centerY - 60);
+
     ctx.fillStyle = "rgba(15,23,42,0.9)";
     ctx.fillRect(x - 2, y - 2, barWidth + 4, barHeight + 4);
     const grad = ctx.createLinearGradient(x, y, x + barWidth, y);
@@ -606,9 +610,9 @@ class AlloysScene {
     ctx.fillRect(x, y, barWidth * clamp(shear / 1.4, 0.1, 1), barHeight);
 
     ctx.fillStyle = "#e5e7eb";
-    ctx.font = "11px system-ui";
-    ctx.textAlign = "center";
-    ctx.fillText("Shear strength", centerX, y - 6);
+    ctx.font = "12px system-ui";
+    ctx.textAlign = "left";
+    ctx.fillText("Shear strength", x, y - 10);
   }
 
   drawSwordShape(bladeColor = '#e5e7eb', handleColor = '#9a3412', alpha = 1) {
