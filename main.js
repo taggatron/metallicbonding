@@ -54,6 +54,8 @@ class SeaScene {
     this.time = 0;
     this.heatFront = 0;
     this.heating = false;
+    this.bondMaxDistance = 90;
+    this.maxBondsPerElectron = 3;
     this.init();
   }
 
@@ -166,18 +168,7 @@ class SeaScene {
     for (const ion of this.ions) {
       const rOuter = 16;
       const rInner = 10;
-
-      const isHot = this.heating && ion.x < this.heatFront;
-
-      // Small vibration around the lattice point, larger when hot
-      const baseJiggle = 0.6;
-      const hotExtra = 2.0;
-      const amp = isHot ? baseJiggle + hotExtra : baseJiggle;
-      const t = this.time * (isHot ? 18 : 10) + ion.x * 0.03 + ion.y * 0.02;
-      const jx = Math.sin(t) * amp;
-      const jy = Math.cos(t * 1.1) * amp;
-      const cx = ion.x + jx;
-      const cy = ion.y + jy;
+      const { x: cx, y: cy, isHot } = this.getIonRenderPosition(ion);
 
       const glow = ctx.createRadialGradient(cx, cy, 2, cx, cy, rOuter);
       if (isHot) {
@@ -220,6 +211,68 @@ class SeaScene {
     }
   }
 
+  getIonRenderPosition(ion) {
+    const isHot = this.heating && ion.x < this.heatFront;
+
+    const baseJiggle = 0.6;
+    const hotExtra = 2.0;
+    const amp = isHot ? baseJiggle + hotExtra : baseJiggle;
+    const t = this.time * (isHot ? 18 : 10) + ion.x * 0.03 + ion.y * 0.02;
+    const jx = Math.sin(t) * amp;
+    const jy = Math.cos(t * 1.1) * amp;
+
+    return {
+      x: ion.x + jx,
+      y: ion.y + jy,
+      isHot,
+    };
+  }
+
+  drawElectrostaticBonds() {
+    if (!electrostaticBondsVisible) return;
+
+    ctx.save();
+    ctx.lineCap = "round";
+
+    const ionPositions = this.ions.map((ion) => this.getIonRenderPosition(ion));
+
+    for (const e of this.electrons) {
+      const candidates = [];
+
+      for (const ionPos of ionPositions) {
+        const dx = ionPos.x - e.x;
+        const dy = ionPos.y - e.y;
+        const dist = Math.hypot(dx, dy);
+
+        if (dist <= this.bondMaxDistance) {
+          candidates.push({ ionPos, dist });
+        }
+      }
+
+      if (!candidates.length) {
+        continue;
+      }
+
+      candidates.sort((a, b) => a.dist - b.dist);
+      const bondsToDraw = candidates.slice(0, this.maxBondsPerElectron);
+
+      for (const bond of bondsToDraw) {
+        const strength = clamp(1 - bond.dist / this.bondMaxDistance, 0, 1);
+        const alpha = 0.15 + strength * 0.85;
+        const lineWidth = 0.8 + strength * 1.5;
+
+        ctx.strokeStyle = `rgba(74, 222, 128, ${alpha})`;
+        ctx.lineWidth = lineWidth;
+        ctx.beginPath();
+        ctx.moveTo(e.x, e.y);
+        ctx.lineTo(bond.ionPos.x, bond.ionPos.y);
+        ctx.stroke();
+      }
+    }
+
+    ctx.restore();
+  }
+
   drawElectrons() {
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
@@ -242,13 +295,24 @@ class SeaScene {
       ctx.fillStyle = glow;
       ctx.arc(e.x, e.y, r * 2.3, 0, Math.PI * 2);
       ctx.fill();
+    }
+    ctx.restore();
+
+    for (const e of this.electrons) {
+      const r = 4;
+      const isHot = this.heating && e.x < this.heatFront;
 
       ctx.beginPath();
       ctx.fillStyle = isHot ? "#fff7ed" : "#e0f2fe";
       ctx.arc(e.x, e.y, r, 0, Math.PI * 2);
       ctx.fill();
+
+      ctx.fillStyle = isHot ? "#9a3412" : "#0c4a6e";
+      ctx.font = "bold 9px system-ui";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("−", e.x, e.y + 0.5);
     }
-    ctx.restore();
   }
 
   drawOverlay() {
@@ -280,6 +344,7 @@ class SeaScene {
   draw() {
     this.drawBackground();
     this.drawIons();
+    this.drawElectrostaticBonds();
     this.drawElectrons();
     this.drawOverlay();
   }
@@ -1378,6 +1443,7 @@ const sceneTextEl = document.getElementById("sceneText");
 
 // Heat / thermal conduction state for scene 1
 let thermalActive = false;
+let electrostaticBondsVisible = false;
 const playPauseBtn = document.getElementById("playPauseBtn");
 const resetBtn = document.getElementById("resetBtn");
 const navButtons = document.querySelectorAll(".nav-button");
@@ -1560,6 +1626,11 @@ function renderSceneText(key) {
       ${info.bullets.map((b) => `<li>${b}</li>`).join("")}
     </ul>
     ${
+      key === "sea"
+        ? '<button id="toggleBondVizBtn" class="secondary-btn"><span class="icon">🧲</span><span>Show electrostatic bonds</span></button>'
+        : ""
+    }
+    ${
       key === "wire"
         ? '<button id="toggleVoltageBtn" class="secondary-btn"><span class="icon">⚡</span><span>Toggle potential difference</span></button>'
         : ""
@@ -1573,9 +1644,27 @@ function renderSceneText(key) {
 
   if (key === "sea") {
     const thermalBtn = document.getElementById("thermalBtn");
+    const bondBtn = document.getElementById("toggleBondVizBtn");
     if (thermalBtn) {
       thermalBtn.addEventListener("click", () => {
         thermalActive = !thermalActive;
+      });
+    }
+    if (bondBtn) {
+      const label = bondBtn.querySelector("span:last-child");
+      const applyBondBtnState = () => {
+        bondBtn.classList.toggle("on", electrostaticBondsVisible);
+        if (label) {
+          label.textContent = electrostaticBondsVisible
+            ? "Hide electrostatic bonds"
+            : "Show electrostatic bonds";
+        }
+      };
+
+      applyBondBtnState();
+      bondBtn.addEventListener("click", () => {
+        electrostaticBondsVisible = !electrostaticBondsVisible;
+        applyBondBtnState();
       });
     }
   }
